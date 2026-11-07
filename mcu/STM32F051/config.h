@@ -45,6 +45,17 @@
 #endif
 #define iotim_dma_isr dma1_channel4_7_dma2_channel3_5_isr
 
+#ifdef IO_AUX
+#if IO_AUX != 0xB6
+#error "IO_AUX: only B6 is supported"
+#endif
+#include <libopencm3/stm32/exti.h>
+#define IOTIM2 TIM14
+#define IOTIM2_EXTI 0x40 // B6
+#define IOTIM2_IDR (GPIOB_IDR & 0x40) // B6
+#define iotim2_isr exti4_15_isr
+#endif
+
 #define USART1_RX_DMA 3
 #define USART1_TX_DMA 2
 #define usart1_tx_dma_isr dma1_channel2_3_dma2_channel1_2_isr

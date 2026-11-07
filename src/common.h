@@ -49,6 +49,13 @@
 #define IO_ANALOG 0
 #endif
 
+#ifdef AUX_COAST
+#define AUX_FULL 256
+#define DAMPED (cfg.damp && auxlev) // Any active freewheeling (AUX above 1100us)
+#else
+#define DAMPED cfg.damp
+#endif
+
 #define GPIO(port, name) _GPIO(port, name)
 #define _GPIO(port, name) __GPIO(port, name)
 #define __GPIO(port, name) GPIO##port##_##name
@@ -118,6 +125,9 @@ extern const Cfg cfgdata;
 extern Cfg cfg;
 extern int throt, brake, ertm, erpm, temp1, temp2, volt, curr, csum, dshotval, beepval;
 extern char analog, telreq, telmode, telphid, flipdir, beacon, dshotext, rearm, auxup;
+#ifdef AUX_COAST
+extern int auxlev;
+#endif
 extern uint32_t tick;
 
 void init(void);

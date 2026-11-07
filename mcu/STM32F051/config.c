@@ -87,6 +87,17 @@ void init(void) {
 	GPIOB_MODER &= ~0x100; // B4 (TIM3_CH1)
 	nvic_set_priority(NVIC_TIM3_IRQ, 0x40);
 #endif
+#ifdef IO_AUX
+	RCC_APB1ENR |= RCC_APB1ENR_TIM14EN;
+	GPIOB_PUPDR = (GPIOB_PUPDR & ~0x3000) | 0x2000; // B6 (pull-down)
+	GPIOB_MODER &= ~0x3000; // B6 (EXTI6)
+	SYSCFG_EXTICR2 |= SYSCFG_EXTICR_GPIOB << 8; // EXTI6=B6
+	EXTI_RTSR |= IOTIM2_EXTI;
+	EXTI_FTSR |= IOTIM2_EXTI;
+	EXTI_IMR |= IOTIM2_EXTI;
+	nvic_set_priority(NVIC_EXTI4_15_IRQ, 0x40);
+	nvic_enable_irq(NVIC_EXTI4_15_IRQ);
+#endif
 #endif
 	nvic_set_priority(NVIC_USART1_IRQ, 0x80);
 	nvic_set_priority(NVIC_USART2_IRQ, 0x40);

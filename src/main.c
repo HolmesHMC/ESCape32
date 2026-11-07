@@ -79,6 +79,9 @@ Cfg cfg = cfgdata;
 
 int throt, brake, ertm, erpm, temp1, temp2, volt, curr, csum, dshotval, beepval = -1;
 char analog, telreq, telmode, telphid, flipdir, beacon, dshotext, rearm, auxup;
+#ifdef AUX_COAST
+int auxlev = AUX_FULL; // AUX drag level [0..AUX_FULL], full without AUX
+#endif
 uint32_t tick;
 
 static int oldstep, step, sine, ival, cutback;
@@ -170,6 +173,13 @@ static void nextstep(void) {
 	} else {
 		if (++step > 6) step = 1;
 	}
+#ifdef AUX_COAST
+	static int dacc;
+	int damp = cfg.damp && (dacc += auxlev) >= AUX_FULL ? (dacc -= AUX_FULL, 1) : 0; // Active freewheeling on auxlev/AUX_FULL of the steps
+#define STEPDAMP damp
+#else
+#define STEPDAMP cfg.damp
+#endif
 	static const uint16_t seq[] = {0x175, 0xd9, 0x1ab, 0x72, 0x1de, 0xac}; // Commutation sequence
 	static int pcc, val, cnt, buf[6];
 	int x = seq[step - 1];
@@ -191,7 +201,7 @@ static void nextstep(void) {
 #ifdef PWM_ENABLE
 		er |= TIM_CCER_CC1E;
 #else
-		er |= cfg.damp ? TIM_CCER_CC1E | TIM_CCER_CC1NE : TIM_CCER_CC1E;
+		er |= STEPDAMP ? TIM_CCER_CC1E | TIM_CCER_CC1NE : TIM_CCER_CC1E;
 #endif
 	} else if (n & 1) {
 #ifdef PWM_ENABLE
@@ -213,7 +223,7 @@ static void nextstep(void) {
 #ifdef PWM_ENABLE
 		er |= TIM_CCER_CC2E;
 #else
-		er |= cfg.damp ? TIM_CCER_CC2E | TIM_CCER_CC2NE : TIM_CCER_CC2E;
+		er |= STEPDAMP ? TIM_CCER_CC2E | TIM_CCER_CC2NE : TIM_CCER_CC2E;
 #endif
 	} else if (n & 2) {
 #ifdef PWM_ENABLE
@@ -235,7 +245,7 @@ static void nextstep(void) {
 #ifdef PWM_ENABLE
 		er |= TIM_CCER_CC3E;
 #else
-		er |= cfg.damp ? TIM_CCER_CC3E | TIM_CCER_CC3NE : TIM_CCER_CC3E;
+		er |= STEPDAMP ? TIM_CCER_CC3E | TIM_CCER_CC3NE : TIM_CCER_CC3E;
 #endif
 	} else if (n & 4) {
 #ifdef PWM_ENABLE
@@ -661,13 +671,22 @@ void main(void) {
 		int ccr, arr = CLK_KHZ / cfg.freq_min;
 		int input = rearm ? 0 : throt;
 		int range = cfg.sine_range * 20;
+#ifdef AUX_COAST
+		if (!auxlev) range = 0; // No sine drive at zero AUX drag
+#endif
 		int delta = range ? 10 : 0;
 		int newduty = 0;
 		if (!running) curduty = 0;
 		if (!input) { // Neutral
 			if (braking == 1) braking = 2; // Reverse after braking
-			if (lock != cfg.duty_lock && !brushed) { // Switch brake mode
-				lock = cfg.duty_lock;
+#ifdef AUX_COAST
+			int newlock = auxlev < AUX_FULL ? 0 : cfg.duty_lock; // Active brake only at full AUX (1900us), normal drag below
+#define NEWLOCK newlock
+#else
+#define NEWLOCK cfg.duty_lock
+#endif
+			if (lock != NEWLOCK && !brushed) { // Switch brake mode
+				lock = NEWLOCK;
 				if (!running) laststep();
 			}
 			if (sync < 6 || erpm < 800 || lock == 2) { // Drag brake
@@ -752,9 +771,9 @@ void main(void) {
 		if (curduty > newduty ? sync < 6 || (curduty -= b) < newduty : (curduty += b) > newduty) curduty = newduty; // Duty cycle slew rate limiting
 	setduty:
 #ifdef FULL_DUTY // Allow 100% duty cycle
-		ccr = scale(curduty, 0, 2000, lock || (running && cfg.damp) ? DEAD_TIME : 0, arr--);
+		ccr = scale(curduty, 0, 2000, lock || (running && DAMPED) ? DEAD_TIME : 0, arr--);
 #else
-		ccr = scale(curduty, 0, 2000, lock || (running && cfg.damp) ? DEAD_TIME : 0, brushed ? arr - (CLK_MHZ * 3 >> 1) : arr);
+		ccr = scale(curduty, 0, 2000, lock || (running && DAMPED) ? DEAD_TIME : 0, brushed ? arr - (CLK_MHZ * 3 >> 1) : arr);
 #endif
 		TIM1_CR1 = TIM_CR1_CEN | TIM_CR1_ARPE | TIM_CR1_UDIS;
 		TIM1_ARR = arr;
@@ -782,12 +801,12 @@ void main(void) {
 					m1 |= TIM_CCMR1_OC1M_FORCE_HIGH | TIM_CCMR1_OC2M_PWM1;
 					m2 |= TIM_CCMR2_OC3M_FORCE_HIGH;
 					er |= TIM_CCER_CC1NE | TIM_CCER_CC2E | TIM_CCER_CC3NE;
-					if (cfg.damp) er |= TIM_CCER_CC2NE;
+					if (DAMPED) er |= TIM_CCER_CC2NE;
 				} else {
 					m1 |= TIM_CCMR1_OC1M_PWM1 | TIM_CCMR1_OC2M_FORCE_HIGH;
 					m2 |= TIM_CCMR2_OC3M_PWM1;
 					er |= TIM_CCER_CC1E | TIM_CCER_CC2NE | TIM_CCER_CC3E;
-					if (cfg.damp) er |= TIM_CCER_CC1NE | TIM_CCER_CC3NE;
+					if (DAMPED) er |= TIM_CCER_CC1NE | TIM_CCER_CC3NE;
 				}
 #endif
 #ifdef INVERTED_HIGH
@@ -843,6 +862,9 @@ void main(void) {
 		if (++auxup == 100) { // Restore brake after 100ms timeout
 			brake = cfg.duty_drag;
 			auxup = 0;
+#ifdef AUX_COAST
+			auxlev = AUX_FULL;
+#endif
 		}
 #if SENS_CNT >= 1
 		if (cutoff < 3000) cutoff = volt < cfg.prot_volt * cells * 10 ? cutoff + 1 : 0;

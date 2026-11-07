@@ -58,12 +58,25 @@ static void setbrake(int x) {
 	if (x < 0) return;
 	brake = scale(x, 1100, 1900, 0, cfg.duty_drag);
 	auxup = 0;
+#ifdef AUX_COAST
+	auxlev = scale(x, 1100, 1900, 0, AUX_FULL);
+#endif
 }
 #endif
 
 #ifdef IO_AUX
 void iotim2_isr(void) {
-#if IOTIM2 == TIM16 || IOTIM2 == TIM17
+#ifdef IOTIM2_EXTI // Edge timing on EXTI line
+	static uint16_t t1;
+	uint16_t t2 = TIM_CNT(IOTIM2);
+	EXTI_PR = IOTIM2_EXTI;
+	if (IOTIM2_IDR) { // Rising edge
+		t1 = t2;
+		return;
+	}
+	int x = (uint16_t)(t2 - t1);
+	if (x < 800 || x > 2200) return; // No input filter on EXTI, drop glitches
+#elif IOTIM2 == TIM16 || IOTIM2 == TIM17
 	static uint16_t t1;
 	uint16_t t2 = TIM_CCR1(IOTIM2);
 	uint16_t er = TIM_CCER(IOTIM2);
@@ -97,7 +110,7 @@ void initio(void) {
 	TIM_CCMR1(IOTIM2) = TIM_CCMR1_CC1S_IN_TI1 | TIM_CCMR1_IC1F_DTF_DIV_8_N_8;
 	TIM_CCER(IOTIM2) = TIM_CCER_CC1E; // IC1 on rising edge on TI1
 	TIM_DIER(IOTIM2) = TIM_DIER_CC1IE;
-#else
+#elif !defined IOTIM2_EXTI
 	TIM_CCMR1(IOTIM2) = TIM_CCMR1_CC1S_IN_TI1 | TIM_CCMR1_IC1F_DTF_DIV_8_N_8 | TIM_CCMR1_CC2S_IN_TI1 | TIM_CCMR1_IC2F_DTF_DIV_8_N_8;
 	TIM_SMCR(IOTIM2) = TIM_SMCR_SMS_RM | TIM_SMCR_TS_TI1FP1; // Reset on rising edge on TI1
 	TIM_CCER(IOTIM2) = TIM_CCER_CC2E | TIM_CCER_CC2P; // IC2 on falling edge on TI1
